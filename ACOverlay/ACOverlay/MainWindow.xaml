@@ -1,0 +1,15 @@
+<Window x:Class="ACOverlay.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AC Overlay"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Width="490" Height="163"
+        Loaded="Window_Loaded">
+    <!-- Nur der Graph, keine Titelzeile, keine Pedalzeile -->
+    <Canvas x:Name="ComboCanvas" ClipToBounds="True"/>
+</Window>

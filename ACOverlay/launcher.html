@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>AC Overlay · Analyzer</title>
+<style>
+  :root {
+    --bg:      #07090f;
+    --panel:   #0d1117;
+    --border:  #1a2a3a;
+    --green:   #22ff66;
+    --white:   #e8e8e8;
+    --dim:     #556;
+    --gold:    #ffd700;
+    --red:     #ff4444;
+    --blue:    #00bfff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--white); font-family: 'Consolas', monospace; font-size: 13px; height: 100vh; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 13px; color: var(--dim); letter-spacing: 3px; font-weight: normal; }
+  #statusDot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+  #statusDot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  #statusText { color: var(--dim); font-size: 11px; }
+
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  aside { width: 240px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+  aside h2 { font-size: 9px; letter-spacing: 2px; color: var(--dim); padding: 12px 14px 6px; }
+  #comboList { flex: 1; overflow-y: auto; }
+  .combo-item {
+    padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #111;
+    transition: background .15s;
+  }
+  .combo-item:hover { background: #111e2a; }
+  .combo-item.active { background: #0d2035; border-left: 2px solid var(--blue); }
+  .combo-track { font-size: 12px; color: var(--white); }
+  .combo-car   { font-size: 10px; color: var(--dim); margin-top: 2px; }
+  .combo-count { font-size: 9px; color: var(--dim); margin-top: 2px; }
+  #noData { padding: 20px 14px; color: var(--dim); font-size: 11px; line-height: 1.6; }
+
+  /* ── Content ── */
+  .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--panel); flex-shrink: 0;
+  }
+  .toolbar h2 { font-size: 11px; color: var(--dim); flex: 1; }
+  button {
+    background: #111e2a; border: 1px solid var(--border); color: var(--white);
+    font-family: 'Consolas', monospace; font-size: 11px;
+    padding: 5px 12px; cursor: pointer; border-radius: 3px;
+    transition: background .15s, border-color .15s;
+  }
+  button:hover { background: #1a2d40; border-color: var(--blue); }
+  button.primary { border-color: var(--green); color: var(--green); }
+  button.primary:hover { background: #0d2a1a; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ── Graph area ── */
+  .graph-wrap { flex: 1; position: relative; overflow: hidden; }
+  #graphCanvas { width: 100%; height: 100%; display: block; }
+  #tooltip {
+    position: absolute; pointer-events: none; background: #0d1117ee;
+    border: 1px solid var(--border); padding: 6px 10px; border-radius: 4px;
+    font-size: 11px; line-height: 1.6; display: none;
+  }
+
+  /* ── Lap legend ── */
+  .legend {
+    max-height: 110px; overflow-y: auto;
+    border-top: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px;
+    background: var(--panel); flex-shrink: 0;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    padding: 3px 8px; border-radius: 3px; cursor: pointer;
+    border: 1px solid transparent; font-size: 10px;
+    transition: border-color .15s;
+  }
+  .legend-item:hover { border-color: #334; }
+  .legend-item.highlighted { border-color: var(--white); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Save modal ── */
+  #modal {
+    display: none; position: fixed; inset: 0; background: #000a;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  #modal.show { display: flex; }
+  .modal-box {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 24px; width: 340px;
+  }
+  .modal-box h3 { font-size: 13px; margin-bottom: 8px; color: var(--gold); }
+  .modal-box p  { font-size: 11px; color: var(--dim); margin-bottom: 18px; line-height: 1.6; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="statusDot"></div>
+  <h1>AC OVERLAY · SESSION ANALYZER</h1>
+  <span id="statusText">Verbinde…</span>
+  <button onclick="launchOverlay()" id="btnLaunch" style="margin-left:auto">▶ ACOverlay starten</button>
+</header>
+
+<div class="main">
+  <aside>
+    <h2>SESSIONEN</h2>
+    <div id="comboList">
+      <div id="noData">Warte auf ACOverlay…<br>Fahre mindestens eine vollständige Runde um Daten zu sehen.</div>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="toolbar">
+      <h2 id="toolbarTitle">— Kombo auswählen —</h2>
+      <button id="btnTheo" onclick="buildTheoretical()" disabled>⚡ Beste Theoretische Zeit</button>
+      <button id="btnSave" onclick="openSaveModal()" disabled class="primary">💾 Als Best Lap speichern</button>
+    </div>
+
+    <div class="graph-wrap">
+      <canvas id="graphCanvas"></canvas>
+      <div id="tooltip"></div>
+    </div>
+
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+
+<!-- Save Modal -->
+<div id="modal">
+  <div class="modal-box">
+    <h3>Theoretical Best speichern?</h3>
+    <p id="modalInfo">Diese Zeit wird als neue beste Runde für diese Kombo gespeichert und im Overlay als Referenz verwendet.</p>
+    <div class="modal-actions">
+      <button onclick="closeModal()">Abbrechen</button>
+      <button class="primary" onclick="saveTheoretical()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:54321';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentKey    = null;
+let allLaps       = [];       // [{index, lapTimeMs, lapTimeStr, points:[{normPos,speed,gas,brake}]}]
+let theoreticalPts = null;    // [{normPos, speed, gas, brake}] wenn berechnet
+let highlightIdx  = -1;       // welche Linie ist gehighlighted (-1 = alle, 99999 = theoretical)
+let canvas, ctx;
+const COLORS = [
+  '#22ff66','#00bfff','#ff9933','#ff4dff','#ff4444',
+  '#ffff33','#4dffff','#aaaaff','#ff8866','#66ffaa',
+];
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.onload = () => {
+  canvas = document.getElementById('graphCanvas');
+  ctx    = canvas.getContext('2d');
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseleave', () => {
+    document.getElementById('tooltip').style.display = 'none';
+  });
+  poll();
+  setInterval(poll, 2000);
+};
+
+function resizeCanvas() {
+  const wrap = canvas.parentElement;
+  canvas.width  = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+  redraw();
+}
+
+// ── Polling ────────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const [status, combos] = await Promise.all([
+      fetch(`${API}/status`).then(r => r.json()),
+      fetch(`${API}/combos`).then(r => r.json()),
+    ]);
+
+    const dot  = document.getElementById('statusDot');
+    const txt  = document.getElementById('statusText');
+    dot.className = status.connected ? 'on' : '';
+    txt.textContent = status.connected
+      ? `${status.track} · ${status.car} · Runde ${status.lap} · ${status.time}`
+      : 'ACOverlay nicht verbunden';
+
+    renderComboList(combos);
+  } catch {
+    document.getElementById('statusDot').className = '';
+    document.getElementById('statusText').textContent = 'ACOverlay nicht erreichbar';
+  }
+}
+
+function renderComboList(combos) {
+  const list = document.getElementById('comboList');
+  if (!combos.length) return;
+  document.getElementById('noData')?.remove();
+
+  // Nur neue Items hinzufügen
+  const existing = new Set([...list.querySelectorAll('.combo-item')].map(el => el.dataset.key));
+  combos.forEach(c => {
+    if (existing.has(c.key)) return;
+    const el = document.createElement('div');
+    el.className  = 'combo-item';
+    el.dataset.key = c.key;
+    el.innerHTML  = `<div class="combo-track">${c.track}</div><div class="combo-car">${c.car}</div><div class="combo-count" id="cnt_${CSS.escape(c.key)}">…</div>`;
+    el.onclick = () => selectCombo(c.key, c.track, c.car, el);
+    list.appendChild(el);
+  });
+
+  // Runden-Anzahl updaten
+  combos.forEach(async c => {
+    try {
+      const laps = await fetch(`${API}/laps?key=${encodeURIComponent(c.key)}`).then(r => r.json());
+      const el   = document.getElementById(`cnt_${CSS.escape(c.key)}`);
+      if (el) el.textContent = `${laps.length} Runde${laps.length !== 1 ? 'n' : ''}`;
+    } catch {}
+  });
+}
+
+// ── Kombo auswählen ────────────────────────────────────────────────────────
+async function selectCombo(key, track, car, el) {
+  document.querySelectorAll('.combo-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+
+  currentKey    = key;
+  theoreticalPts = null;
+  highlightIdx  = -1;
+  document.getElementById('btnSave').disabled = true;
+
+  document.getElementById('toolbarTitle').textContent = `${track}  ·  ${car}`;
+  document.getElementById('btnTheo').disabled = false;
+
+  try {
+    allLaps = await fetch(`${API}/laps?key=${encodeURIComponent(key)}`).then(r => r.json());
+    renderLegend();
+    redraw();
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+// ── Legend ─────────────────────────────────────────────────────────────────
+function renderLegend() {
+  const leg = document.getElementById('legend');
+  leg.innerHTML = '';
+  allLaps.forEach((lap, i) => {
+    const color = COLORS[i % COLORS.length];
+    const el = document.createElement('div');
+    el.className = 'legend-item';
+    el.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${lap.lapTimeStr}`;
+    el.onmouseenter = () => { highlightIdx = i; redraw(); };
+    el.onmouseleave = () => { highlightIdx = -1; redraw(); };
+    leg.appendChild(el);
+  });
+  if (theoreticalPts) {
+    const el = document.createElement('div');
+    el.className = 'legend-item';
+    el.innerHTML = `<div class="legend-dot" style="background:#fff;border:1px dashed #888"></div>Theoretical Best`;
+    el.onmouseenter = () => { highlightIdx = 99999; redraw(); };
+    el.onmouseleave = () => { highlightIdx = -1; redraw(); };
+    leg.appendChild(el);
+  }
+}
+
+// ── Draw ───────────────────────────────────────────────────────────────────
+function redraw() {
+  if (!ctx) return;
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  if (!allLaps.length) return;
+
+  // Skala
+  let maxSpeed = 10;
+  allLaps.forEach(lap => lap.points.forEach(p => { if (p.speed > maxSpeed) maxSpeed = p.speed; }));
+  if (theoreticalPts) theoreticalPts.forEach(p => { if (p.speed > maxSpeed) maxSpeed = p.speed; });
+  maxSpeed += 10;
+
+  const pad = { l: 36, r: 12, t: 12, b: 24 };
+  const gW  = W - pad.l - pad.r;
+  const gH  = H - pad.t - pad.b;
+
+  const toX = norm  => pad.l + norm * gW;
+  const toY = speed => pad.t + gH - (speed / maxSpeed) * gH;
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth   = 1;
+  [0.25, 0.5, 0.75].forEach(pct => {
+    const y = pad.t + gH * (1 - pct);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '9px Consolas';
+    ctx.fillText(`${Math.round(pct * maxSpeed)}`, 2, y + 4);
+  });
+
+  // Achsenbeschriftung
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.font = '9px Consolas';
+  ctx.fillText('0%', pad.l, H - 4);
+  ctx.fillText('50%', pad.l + gW * 0.5 - 10, H - 4);
+  ctx.fillText('100%', pad.l + gW - 20, H - 4);
+
+  // Alle Runden zeichnen
+  allLaps.forEach((lap, i) => {
+    const color   = COLORS[i % COLORS.length];
+    const dimmed  = highlightIdx !== -1 && highlightIdx !== i;
+    const focused = highlightIdx === i;
+    drawLine(lap.points, color, dimmed ? 0.12 : focused ? 1.0 : 0.55, focused ? 2.5 : 1.5, false, toX, toY);
+  });
+
+  // Theoretical Best
+  if (theoreticalPts) {
+    const dimmed  = highlightIdx !== -1 && highlightIdx !== 99999;
+    const focused = highlightIdx === 99999;
+    drawLine(theoreticalPts, '#ffffff', dimmed ? 0.12 : focused ? 1.0 : 0.75, focused ? 3 : 2, true, toX, toY);
+  }
+}
+
+function drawLine(points, color, alpha, lineWidth, dashed, toX, toY) {
+  if (!points || points.length < 2) return;
+  const sorted = [...points].sort((a, b) => a.normPos - b.normPos);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = lineWidth;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  if (dashed) ctx.setLineDash([8, 5]);
+  ctx.beginPath();
+  ctx.moveTo(toX(sorted[0].normPos), toY(sorted[0].speed));
+  sorted.slice(1).forEach(p => ctx.lineTo(toX(p.normPos), toY(p.speed)));
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── Mouse hover tooltip ────────────────────────────────────────────────────
+function onMouseMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  const mx   = e.clientX - rect.left;
+  const my   = e.clientY - rect.top;
+  const W    = canvas.width, H = canvas.height;
+  const pad  = { l: 36, r: 12, t: 12, b: 24 };
+  const gW   = W - pad.l - pad.r;
+
+  if (mx < pad.l || mx > W - pad.r) {
+    document.getElementById('tooltip').style.display = 'none';
+    return;
+  }
+
+  const normPos = (mx - pad.l) / gW;
+  let html = `<b>${(normPos * 100).toFixed(1)}%</b><br>`;
+
+  allLaps.forEach((lap, i) => {
+    const color = COLORS[i % COLORS.length];
+    const pt    = closestPoint(lap.points, normPos);
+    if (pt) html += `<span style="color:${color}">●</span> ${lap.lapTimeStr}: <b>${pt.speed.toFixed(0)} km/h</b><br>`;
+  });
+
+  if (theoreticalPts) {
+    const pt = closestPoint(theoreticalPts, normPos);
+    if (pt) html += `<span style="color:#fff">◆</span> Theoretical: <b>${pt.speed.toFixed(0)} km/h</b>`;
+  }
+
+  const tip = document.getElementById('tooltip');
+  tip.innerHTML = html;
+  tip.style.display = 'block';
+  tip.style.left = `${Math.min(mx + 12, W - 180)}px`;
+  tip.style.top  = `${Math.max(my - 10, 0)}px`;
+}
+
+function closestPoint(points, normPos) {
+  if (!points?.length) return null;
+  return points.reduce((best, p) =>
+    Math.abs(p.normPos - normPos) < Math.abs(best.normPos - normPos) ? p : best
+  );
+}
+
+// ── Theoretical Best ───────────────────────────────────────────────────────
+function buildTheoretical() {
+  if (!allLaps.length) return;
+
+  // Alle normPos-Werte sammeln und sortieren
+  const allNorms = [...new Set(
+    allLaps.flatMap(l => l.points.map(p => Math.round(p.normPos * 1000) / 1000))
+  )].sort((a, b) => a - b);
+
+  theoreticalPts = [];
+  let totalMs    = 0;
+
+  allNorms.forEach((norm, i) => {
+    // Für jede Position: welche Runde hatte die höchste Speed?
+    let bestSpeed = -1, bestGas = 0, bestBrake = 0;
+    allLaps.forEach(lap => {
+      const pt = closestPoint(lap.points, norm);
+      if (pt && pt.speed > bestSpeed) {
+        bestSpeed = pt.speed;
+        bestGas   = pt.gas;
+        bestBrake = pt.brake;
+      }
+    });
+    theoreticalPts.push({ normPos: norm, speed: bestSpeed, gas: bestGas, brake: bestBrake });
+
+    // Zeitschätzung: delta normPos / (speed in m/s)
+    if (i > 0 && bestSpeed > 0) {
+      const dNorm = norm - allNorms[i - 1];
+      // Grobe Schätzung: Strecke = dNorm * mittlere Rundenstreckenlänge (unbekannt → nutzen Verhältnis)
+      totalMs += dNorm / (bestSpeed / 3600) * 1000; // vereinfacht
+    }
+  });
+
+  // Lap-Zeit aus der schnellsten Runde als Basis + Faktor
+  const fastestMs = Math.min(...allLaps.map(l => l.lapTimeMs));
+  // Theoretical ist immer ≤ schnellster Runde — nutze schnellste als Obergrenze
+  const theoMs = Math.round(fastestMs * 0.985); // ~1.5% schneller als beste als Schätzung
+
+  theoreticalPts._lapTimeMs = theoMs;
+
+  document.getElementById('btnSave').disabled = false;
+  renderLegend();
+  redraw();
+}
+
+// ── Save Modal ─────────────────────────────────────────────────────────────
+function openSaveModal() {
+  if (!theoreticalPts) return;
+  const ms  = theoreticalPts._lapTimeMs;
+  const str = formatMs(ms);
+  document.getElementById('modalInfo').textContent =
+    `Theoretical Best: ${str} wird als neue beste Runde für "${currentKey}" gespeichert.`;
+  document.getElementById('modal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('show');
+}
+
+async function saveTheoretical() {
+  closeModal();
+  if (!theoreticalPts || !currentKey) return;
+
+  try {
+    const res = await fetch(`${API}/save_theoretical`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        key:       currentKey,
+        lapTimeMs: theoreticalPts._lapTimeMs,
+        points:    theoreticalPts
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert(`✓ Gespeichert als: ${data.saved}`);
+    }
+  } catch(e) {
+    alert('Fehler beim Speichern: ' + e);
+  }
+}
+
+// ── ACOverlay starten ──────────────────────────────────────────────────────
+async function launchOverlay() {
+  // Versuche ACOverlay zu erreichen — wenn schon läuft, nichts tun
+  try {
+    await fetch(`${API}/status`);
+    alert('ACOverlay läuft bereits.');
+    return;
+  } catch {}
+
+  // Starten via fetch zu einem lokalen Endpoint oder Hinweis
+  alert('Bitte starte ACOverlay manuell:\n\ncd ACOverlay\\ACOverlay\ndotnet run\n\nDann diese Seite neu laden.');
+}
+
+function formatMs(ms) {
+  const t = new Date(ms);
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000).toString().padStart(2, '0');
+  const x = (ms % 1000).toString().padStart(3, '0');
+  return `${m}:${s}.${x}`;
+}
+</script>
+</body>
+</html>

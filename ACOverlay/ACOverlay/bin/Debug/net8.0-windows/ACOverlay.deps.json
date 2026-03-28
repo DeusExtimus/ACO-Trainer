@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "ACOverlay/1.0.0": {
+        "runtime": {
+          "ACOverlay.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "ACOverlay/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
